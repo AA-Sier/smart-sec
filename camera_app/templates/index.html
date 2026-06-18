@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>ESP Camera Manager</title>
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+<div class="container">
+
+    <div class="header">
+        <h1>ESP Camera Manager</h1>
+        <button onclick="scanDevices()">
+            Skanuj sieć
+        </button>
+    </div>
+
+    <div class="content">
+
+        <div class="sidebar">
+            <h2>Urządzenia</h2>
+
+            <div id="devices"></div>
+        </div>
+
+        <div class="viewer">
+
+            <h2>Podgląd</h2>
+
+            <img id="detect">
+
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+
+async function scanDevices()
+{
+    await fetch("/scan");
+
+    refreshDevices();
+}
+
+async function refreshDevices()
+{
+    let response =
+        await fetch("/devices");
+
+    let devices =
+        await response.json();
+
+    let html = "";
+
+    for(let d of devices)
+    {
+        html += `
+            <button onclick="
+                selectCamera('${d.ip}')
+            ">
+                ${d.name}
+                (${d.ip})
+            </button>
+            <br><br>
+        `;
+    }
+
+    document.getElementById(
+        "devices"
+    ).innerHTML = html;
+}
+
+async function selectCamera(ip)
+{
+    await fetch(
+        "/select/" + ip
+    );
+
+    updateDetection();
+}
+
+function updateDetection()
+{
+    document.getElementById(
+        "detect"
+    ).src =
+        "/detect?t=" +
+        Date.now();
+}
+
+setInterval(
+    updateDetection,
+    1000
+);
+</script>
+
+</body>
+
+</html>

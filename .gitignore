@@ -1,0 +1,22 @@
+# ESP-IDF
+s3_camera/build/
+s3_camera/managed_components/
+
+# local config
+s3_camera/sdkconfig
+s3_camera/sdkconfig.old
+
+# VS Code
+.vscode/
+
+# Python
+camera_app/__pycache__/
+s3_camera/*.pyc
+
+# Pliki wynikowe
+s3_camera/*.bin
+s3_camera/*.elf
+s3_camera/*.map
+
+# Logi
+*.log
