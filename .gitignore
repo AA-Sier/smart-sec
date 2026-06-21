@@ -17,6 +17,7 @@ s3_camera/*.pyc
 s3_camera/*.bin
 s3_camera/*.elf
 s3_camera/*.map
+s3_camera/*.simple_tocopy
 
 # Logi
 *.log

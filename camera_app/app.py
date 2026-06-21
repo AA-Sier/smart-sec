@@ -2,6 +2,7 @@ from flask import Flask
 from flask import render_template
 from flask import jsonify
 from flask import Response
+from flask import stream_with_context
 from scanner import scan_network
 from face_detect import get_detected_frame
 from flask_cors import CORS
@@ -34,7 +35,7 @@ def scan():
     devices = scan_network(
         "192.168.1"
     )
-
+    print(devices)
     return jsonify(devices)
 
 
@@ -42,19 +43,29 @@ def scan():
 def get_devices():
     return jsonify(devices)
 
+def generate_detected_frames(ip):
+    while True:
+        image = get_detected_frame(ip)
+
+        if image is None:
+            continue
+
+        yield (b"--frame\r\n"
+               b"Content-Type: image/jpeg\r\n\r\n"
+               + image + b"\r\n")
+
+
 @app.route("/detect")
 def detect():
 
     if current_ip is None:
         return "No camera selected", 400
 
-    image = get_detected_frame(
-        current_ip
-    )
-
     return Response(
-        image,
-        mimetype="image/jpeg"
+        stream_with_context(
+            generate_detected_frames(current_ip)
+        ),
+        mimetype="multipart/x-mixed-replace; boundary=frame"
     )
 
 if __name__ == "__main__":

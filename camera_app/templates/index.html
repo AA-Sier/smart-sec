@@ -81,22 +81,10 @@ async function selectCamera(ip)
         "/select/" + ip
     );
 
-    updateDetection();
-}
-
-function updateDetection()
-{
     document.getElementById(
         "detect"
-    ).src =
-        "/detect?t=" +
-        Date.now();
+    ).src = "/detect";
 }
-
-setInterval(
-    updateDetection,
-    1000
-);
 </script>
 
 </body>

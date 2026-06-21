@@ -37,7 +37,7 @@
 #endif  // !CONFIG_IDF_TARGET_LINUX
 
 #define EXAMPLE_HTTP_QUERY_KEY_MAX_LEN  (64)
-#define MAX_RETRIES 10
+
 /* A simple example that demonstrates how to create GET and POST
  * handlers for the web server.
  */
@@ -143,37 +143,6 @@ static esp_err_t led_off_handler(httpd_req_t *req)
 
     httpd_resp_sendstr(req, "OK");
 
-    return ESP_OK;
-}
-
-static esp_err_t stream_handler(httpd_req_t *req)
-{
-    httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=frame");
-    
-    while (true) {
-        camera_fb_t *fb = esp_camera_fb_get();
-        
-        if (!fb) {
-            ESP_LOGE(TAG, "Frame capture failed");
-            break;
-        }
-        
-        // Send boundary and frame data
-        httpd_resp_sendstr_chunk(req, "--frame\r\n");
-        httpd_resp_sendstr_chunk(req, "Content-Type: image/jpeg\r\n");
-        
-        char len_str[32];
-        snprintf(len_str, sizeof(len_str), "Content-Length: %u\r\n\r\n", fb->len);
-        httpd_resp_sendstr_chunk(req, len_str);
-        httpd_resp_send_chunk(req, (const char *)fb->buf, fb->len);
-        httpd_resp_sendstr_chunk(req, "\r\n");
-        
-        esp_camera_fb_return(fb);
-        
-        // Control frame rate (20fps)
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
-    
     return ESP_OK;
 }
 
@@ -300,7 +269,6 @@ bool load_wifi_credentials(
            err2 == ESP_OK;
 }
 
-
 static void register_handlers(httpd_handle_t server)
 {
     httpd_uri_t root = {
@@ -339,12 +307,6 @@ static void register_handlers(httpd_handle_t server)
     .handler = capture_handler
     };
 
-    httpd_uri_t stream = {
-    .uri = "/stream",
-    .method = HTTP_GET,
-    .handler = stream_handler
-    };
-
     httpd_uri_t camera = {
     .uri = "/camera",
     .method = HTTP_GET,
@@ -358,7 +320,6 @@ static void register_handlers(httpd_handle_t server)
 };
 
     httpd_register_uri_handler(server, &info);
-    httpd_register_uri_handler(server, &stream);
     httpd_register_uri_handler(server, &capture);
     httpd_register_uri_handler(server, &control);
     httpd_register_uri_handler(server, &led_on);
@@ -387,9 +348,14 @@ static httpd_handle_t start_webserver(void)
 }
 static void start_softap(void)
 {
+    esp_netif_create_default_wifi_ap();
 
     wifi_init_config_t cfg =
         WIFI_INIT_CONFIG_DEFAULT();
+
+    ESP_ERROR_CHECK(
+        esp_wifi_init(&cfg)
+    );
 
     wifi_config_t wifi_config = {
         .ap = {
@@ -403,7 +369,7 @@ static void start_softap(void)
 
     ESP_ERROR_CHECK(
         esp_wifi_set_mode(
-            WIFI_MODE_APSTA
+            WIFI_MODE_AP
         )
     );
 
@@ -426,6 +392,15 @@ static void connect_wifi(
     const char *ssid,
     const char *password)
 {
+    esp_netif_create_default_wifi_sta();
+
+    wifi_init_config_t cfg =
+        WIFI_INIT_CONFIG_DEFAULT();
+
+    ESP_ERROR_CHECK(
+        esp_wifi_init(&cfg)
+    );
+
     wifi_config_t wifi_config = {0};
 
     strncpy(
@@ -475,8 +450,6 @@ static void wifi_event_handler(
     if (event_base == IP_EVENT &&
         event_id == IP_EVENT_STA_GOT_IP)
     {
-        retry_count = 0;
-
         ip_event_got_ip_t *event =
             (ip_event_got_ip_t *)event_data;
 
@@ -490,34 +463,31 @@ static void wifi_event_handler(
         }
     }
 
-    if (event_base == WIFI_EVENT &&
-    event_id == WIFI_EVENT_STA_DISCONNECTED)
-    {
-        retry_count++;
+    else if (event_base == WIFI_EVENT &&
+             event_id == WIFI_EVENT_STA_DISCONNECTED)
+    { 
 
-        ESP_LOGW(TAG,
-                "WiFi disconnected (%d/%d)",
-                retry_count,
-                MAX_RETRIES);
-
-        if (retry_count >= MAX_RETRIES)
+        if(retry_count < 5)
         {
+            retry_count++;
+
             ESP_LOGW(TAG,
-                    "Starting configuration AP");
+                    "Reconnect attempt %d",
+                    retry_count);
 
-            start_softap();
-
-            if (server == NULL)
-            {
-                server = start_webserver();
-            }
+            vTaskDelay(pdMS_TO_TICKS(1000));
+    
         }
         else
         {
-            esp_wifi_connect();
+            ESP_LOGI(TAG, "restarting due to lost connection");
+
+            esp_restart();
+
         }
     }
 
+ 
 }
 
 
@@ -571,20 +541,26 @@ static void init_camera(void)
 
     sensor_t *s = esp_camera_sensor_get();
 
-    if (s)
+    ESP_LOGI(TAG,
+             "Camera PID: 0x%04x",
+             s->id.PID);
+
+    camera_fb_t *fb = esp_camera_fb_get();
+
+    if (!fb)
     {
-        ESP_LOGI(TAG,
-                 "Camera PID: 0x%04x",
-                 s->id.PID);
+        ESP_LOGE(TAG, "Failed to capture image");
+        return;
     }
 
-    ESP_LOGI(TAG, "Camera initialized successfully");
+    ESP_LOGI(TAG,
+             "JPEG size: %u bytes",
+             fb->len);
+
+    esp_camera_fb_return(fb);
 }
 void app_main(void)
 {   
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    
     ESP_LOGI(TAG,
          "Free heap: %u",
          (unsigned)esp_get_free_heap_size());
@@ -592,38 +568,10 @@ void app_main(void)
     ESP_LOGI(TAG,
          "Free SPIRAM: %u",
          (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-    
     ESP_ERROR_CHECK(nvs_flash_init());
 
-    esp_netif_create_default_wifi_sta();
-    esp_netif_create_default_wifi_ap();
-
-    wifi_init_config_t cfg =
-        WIFI_INIT_CONFIG_DEFAULT();
-
-    ESP_ERROR_CHECK(
-        esp_wifi_init(&cfg)
-    );
-    
-    // Register event handlers before connecting
-    ESP_ERROR_CHECK(
-        esp_event_handler_register(
-            WIFI_EVENT,
-            ESP_EVENT_ANY_ID,
-            &wifi_event_handler,
-            NULL
-        )
-    );
-
-    ESP_ERROR_CHECK(
-        esp_event_handler_register(
-            IP_EVENT,
-            IP_EVENT_STA_GOT_IP,
-            &wifi_event_handler,
-            NULL
-        )
-    );
-
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
     init_camera();
 
     char ssid[33];
@@ -637,12 +585,41 @@ void app_main(void)
     {
         ESP_LOGI(TAG, "Found saved WiFi");
         ESP_LOGI(TAG, "SSID: %s", ssid);
+        ESP_ERROR_CHECK(
+            esp_event_handler_register(
+                WIFI_EVENT,
+                ESP_EVENT_ANY_ID,
+                &wifi_event_handler,
+                NULL
+            )
+        );
+
+        ESP_ERROR_CHECK(
+            esp_event_handler_register(
+                IP_EVENT,
+                IP_EVENT_STA_GOT_IP,
+                &wifi_event_handler,
+                NULL
+            )
+        );  
+        
+        ESP_ERROR_CHECK(
+            esp_event_handler_register(
+                WIFI_EVENT,
+                WIFI_EVENT_STA_DISCONNECTED,
+                &wifi_event_handler,
+                NULL
+            )
+        ); 
+         
+        ESP_LOGI(TAG, "SSID: %s", ssid);
+        ESP_LOGI(TAG, "PASS: %s", password);     
         connect_wifi(ssid, password);
     }
     else
     {
-        ESP_LOGI(TAG, "No saved WiFi, starting AP");
         start_softap();
         start_webserver();
     }
+    
 }
