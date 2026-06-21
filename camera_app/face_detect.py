@@ -3,19 +3,16 @@ from ultralytics import YOLO
 import requests
 import numpy as np
 import time
-from mailing import send_alert, last_mail_time, MAIL_COOLDOWN
+import mailing
 from datetime import datetime
-
 face_cascade = cv2.CascadeClassifier(
     cv2.data.haarcascades +
     "haarcascade_frontalface_default.xml"
 )
 
-model = YOLO("yolo11n.pt")
+model = YOLO("models/yolo26n.pt")
 
 def get_detected_frame(ip):
-
-    global last_mail_time
 
     response = requests.get(
         f"http://{ip}/capture",
@@ -63,18 +60,19 @@ def get_detected_frame(ip):
         now = time.time()
 
         print(
-                f"Cooldown left: "
-                f"{MAIL_COOLDOWN - (now - last_mail_time):.1f}s"
-                )
-        if now - last_mail_time > MAIL_COOLDOWN:
+            f"Cooldown left: "
+            f"{mailing.MAIL_COOLDOWN - (now - mailing.last_mail_time):.1f}s"
+            )
+        if now - mailing.last_mail_time > mailing.MAIL_COOLDOWN:
             
             _, jpeg = cv2.imencode(
                 ".jpg",
                 annotated_image
                     )
-            
-            send_alert(image_bytes = jpeg.tobytes(),
-                       detected_objects=detected_objects)
+
+            # schedule background send (non-blocking)
+            mailing.send_alert(image_bytes=jpeg.tobytes(),
+                               detected_objects=detected_objects)
 
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             
@@ -83,5 +81,5 @@ def get_detected_frame(ip):
             frame
             )
 
-            last_mail_time = now
+            # mailing.send_alert already updated `mailing.last_mail_time`
     return jpeg.tobytes()

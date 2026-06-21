@@ -2,16 +2,20 @@ import smtplib
 from email.message import EmailMessage
 import os
 from datetime import datetime
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+# Simple in-process thread pool for background sending
+_executor = ThreadPoolExecutor(max_workers=2)
 
 last_mail_time = 0
 MAIL_COOLDOWN = 60
 
-def send_alert(image_bytes, detected_objects):
 
+def _build_message(image_bytes, detected_objects):
     obj_string = ""
 
     for obj in detected_objects:
-
         obj_string += (
             f"<li>"
             f"{obj['name']} "
@@ -25,9 +29,7 @@ def send_alert(image_bytes, detected_objects):
     msg["From"] = os.getenv("EMAIL_USER")
     msg["To"] = os.getenv("EMAIL_USER")
 
-    msg.set_content(
-        "Detected recognizable objects"
-    )
+    msg.set_content("Detected recognizable objects")
 
     msg.add_alternative(f"""
     <html>
@@ -79,14 +81,27 @@ def send_alert(image_bytes, detected_objects):
         filename="alert.jpg"
     )
 
-    with smtplib.SMTP_SSL(
-        "smtp.gmail.com",
-        465
-    ) as smtp:
+    return msg
 
+
+def _send_email_sync(msg):
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(
             os.getenv("EMAIL_USER"),
             os.getenv("EMAIL_PASS")
         )
-
         smtp.send_message(msg)
+
+
+def send_alert(image_bytes, detected_objects):
+    global last_mail_time
+
+    msg = _build_message(image_bytes, detected_objects)
+
+    # update cooldown timestamp immediately so caller can rely on it
+    last_mail_time = time.time()
+
+    # schedule actual send in background
+    _executor.submit(_send_email_sync, msg)
+
+    return None

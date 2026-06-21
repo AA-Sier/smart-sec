@@ -177,7 +177,6 @@ static esp_err_t stream_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static esp_err_t capture_handler(httpd_req_t *req)
 {
     camera_fb_t *fb = esp_camera_fb_get();
 
@@ -199,7 +198,6 @@ static esp_err_t capture_handler(httpd_req_t *req)
 
     return ESP_OK;
 }
-
 static esp_err_t camera_page_handler(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html");
@@ -327,17 +325,6 @@ static void register_handlers(httpd_handle_t server)
         .handler = led_on_handler
     };
 
-    httpd_uri_t led_off = {
-        .uri = "/led/off",
-        .method = HTTP_GET,
-        .handler = led_off_handler
-    };
-
-    httpd_uri_t capture = {
-    .uri = "/capture",
-    .method = HTTP_GET,
-    .handler = capture_handler
-    };
 
     httpd_uri_t stream = {
     .uri = "/stream",
@@ -359,7 +346,6 @@ static void register_handlers(httpd_handle_t server)
 
     httpd_register_uri_handler(server, &info);
     httpd_register_uri_handler(server, &stream);
-    httpd_register_uri_handler(server, &capture);
     httpd_register_uri_handler(server, &control);
     httpd_register_uri_handler(server, &led_on);
     httpd_register_uri_handler(server, &led_off);
@@ -552,7 +538,7 @@ static void init_camera(void)
         .pixel_format = PIXFORMAT_JPEG,
 
         .frame_size = FRAMESIZE_VGA,
-        .jpeg_quality = 30,
+        .jpeg_quality = 15,
         .fb_count = 1,
         .fb_location = CAMERA_FB_IN_DRAM,
         .grab_mode = CAMERA_GRAB_WHEN_EMPTY
